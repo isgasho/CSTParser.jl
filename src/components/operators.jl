@@ -191,10 +191,16 @@ end
 function parse_operator_eq(ps::ParseState, @nospecialize(ret), op)
     nextarg = @precedence ps AssignmentOp - LtoR(AssignmentOp) parse_expression(ps)
 
-    if is_func_call(ret) && !(nextarg isa EXPR{Begin} || (nextarg isa EXPR{InvisBrackets} && nextarg.args[2] isa EXPR{Block}))
-        nextarg = EXPR{Block}(Any[nextarg])
+    if is_func_call(ret) 
+        if !(nextarg isa EXPR{Begin} || (nextarg isa EXPR{InvisBrackets} && nextarg.args[2] isa EXPR{Block}))
+            nextarg = EXPR{Block}(Any[nextarg])
+        end
+        return @addbinding ps BinarySyntaxOpCall(ret, op, nextarg)
+    elseif ret isa IDENTIFIER
+        return @addbinding ps BinarySyntaxOpCall(ret, op, nextarg)
+    else
+        return BinarySyntaxOpCall(ret, op, nextarg)
     end
-    return BinarySyntaxOpCall(ret, op, nextarg)
 end
 
 # Parse conditionals

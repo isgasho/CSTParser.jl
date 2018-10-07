@@ -73,12 +73,12 @@ function parse_string_or_cmd(ps::ParseState, prefixed = false)
                     replace(_val, "\\\"" => "\""), ps.t.kind)
         if istrip
             adjust_lcp(expr)
-            ret = EXPR{StringH}(Any[expr], sfullspan, sspan)
+            ret = EXPR{StringH}(Any[expr], sfullspan, sspan, MetaInfo())
         else
             return expr
         end
     else
-        ret = EXPR{StringH}(Any[], sfullspan, sspan)
+        ret = EXPR{StringH}(Any[], sfullspan, sspan, MetaInfo())
         input = IOBuffer(val(ps.t, ps))
         startbytes = istrip ? 3 : 1
         seek(input, startbytes)
@@ -124,7 +124,7 @@ function parse_string_or_cmd(ps::ParseState, prefixed = false)
                     ps1 = ParseState(input)
                     next(ps1)
                     if ps1.t.kind == Tokens.WHITESPACE
-                        t = EXPR{ErrorToken}([], ps.t.startbyte, 1:(ps.t.endbyte - ps.t.startbyte + 1))
+                        t = EXPR{ErrorToken}([], ps.t.startbyte, 1:(ps.t.endbyte - ps.t.startbyte + 1), MetaInfo())
                     else
                         t = INSTANCE(ps1)
                     end
@@ -168,7 +168,7 @@ function parse_string_or_cmd(ps::ParseState, prefixed = false)
 end
 
 
-adjustspan(x::IDENTIFIER) = IDENTIFIER(length(x.span), x.span, x.val)
+adjustspan(x::IDENTIFIER) = IDENTIFIER(length(x.span), x.span, x.val, x.meta)
 adjustspan(x::KEYWORD)= KEYWORD(x.kind, length(x.span), x.span)
 adjustspan(x::OPERATOR) = OPERATOR(length(x.span), x.span, x.kind, x.dot)
 adjustspan(x::LITERAL) = LITERAL(length(x.span), x.span, x.val, x.kind)

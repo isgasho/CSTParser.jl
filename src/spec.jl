@@ -21,6 +21,11 @@ const AnonFuncOp    = 14
 
 abstract type AbstractEXPR end
 
+mutable struct MetaInfo
+    binding::Bool
+    ref
+end
+MetaInfo() = MetaInfo(false, nothing)
 # Invariants:
 # if !isempty(e.args)
 #   e.fullspan == sum(x->x.fullspan, e.args)
@@ -34,6 +39,7 @@ mutable struct EXPR{T} <: AbstractEXPR
     # The range of bytes within the fullspan that constitute the actual expression,
     # excluding any leading/trailing whitespace or other trivia. 1-indexed
     span::UnitRange{Int}
+    meta::MetaInfo
 end
 
 
@@ -43,9 +49,14 @@ struct IDENTIFIER <: LeafNode
     fullspan::Int
     span::UnitRange{Int}
     val::String
-    IDENTIFIER(fullspan::Int, span::UnitRange{Int}, val::String) = new(fullspan, span, val)
+    meta::MetaInfo
+    IDENTIFIER(fullspan::Int, span::UnitRange{Int}, val::String, meta) = new(fullspan, span, val, meta)
 end
-@noinline IDENTIFIER(ps::ParseState) = IDENTIFIER(ps.nt.startbyte - ps.t.startbyte, 1:(ps.t.endbyte - ps.t.startbyte + 1), val(ps.t, ps))
+@noinline function IDENTIFIER(ps::ParseState)
+    id = IDENTIFIER(ps.nt.startbyte - ps.t.startbyte, 1:(ps.t.endbyte - ps.t.startbyte + 1), val(ps.t, ps), MetaInfo())
+    push!(ps.meta.refs, Reference(id, ps.t.startbyte, ps.meta.s, ps.meta.nb, id))
+    return id
+end
 
 struct PUNCTUATION <: LeafNode
     kind::Tokenize.Tokens.Kind
@@ -101,7 +112,7 @@ function update_span!(x::EXPR)
 end
 
 function EXPR{T}(args::Vector) where {T}
-    ret = EXPR{T}(args, 0, 1:0)
+    ret = EXPR{T}(args, 0, 1:0, MetaInfo())
     update_span!(ret)
     ret
 end
@@ -185,9 +196,10 @@ mutable struct UnaryOpCall <: AbstractEXPR
     arg
     fullspan::Int
     span::UnitRange{Int}
+    meta::MetaInfo
     function UnaryOpCall(op, arg)
         fullspan = op.fullspan + arg.fullspan
-        new(op, arg, fullspan, 1:(fullspan - arg.fullspan + length(arg.span)))
+        new(op, arg, fullspan, 1:(fullspan - arg.fullspan + length(arg.span)), MetaInfo(false, nothing))
     end
 end
 
@@ -196,9 +208,10 @@ mutable struct UnarySyntaxOpCall <: AbstractEXPR
     arg2
     fullspan::Int
     span::UnitRange{Int}
+    meta::MetaInfo
     function UnarySyntaxOpCall(arg1, arg2)
         fullspan = arg1.fullspan + arg2.fullspan
-        new(arg1, arg2, fullspan, 1:(fullspan - arg2.fullspan + length(arg2.span)))
+        new(arg1, arg2, fullspan, 1:(fullspan - arg2.fullspan + length(arg2.span)), MetaInfo(false, nothing))
     end
 end
 
@@ -208,9 +221,10 @@ mutable struct BinaryOpCall <: AbstractEXPR
     arg2
     fullspan::Int
     span::UnitRange{Int}
+    meta::MetaInfo
     function BinaryOpCall(arg1, op, arg2)
         fullspan = arg1.fullspan + op.fullspan + arg2.fullspan
-        new(arg1, op, arg2, fullspan, 1:(fullspan - arg2.fullspan + length(arg2.span)))
+        new(arg1, op, arg2, fullspan, 1:(fullspan - arg2.fullspan + length(arg2.span)), MetaInfo(false, nothing))
     end
 end
 
@@ -220,9 +234,10 @@ mutable struct BinarySyntaxOpCall <: AbstractEXPR
     arg2
     fullspan::Int
     span::UnitRange{Int}
+    meta::MetaInfo
     function BinarySyntaxOpCall(arg1, op, arg2)
         fullspan = arg1.fullspan + op.fullspan + arg2.fullspan
-        new(arg1, op, arg2, fullspan, 1:(fullspan - arg2.fullspan + length(arg2.span)))
+        new(arg1, op, arg2, fullspan, 1:(fullspan - arg2.fullspan + length(arg2.span)), MetaInfo(false, nothing))
     end
 end
 
@@ -318,7 +333,7 @@ abstract type TypedVcat <: Head end
 abstract type Vect <: Head end
 
 abstract type ErrorToken <: Head end
-ErrorToken() = EXPR{ErrorToken}(Any[], 0, 1:0)
+ErrorToken() = EXPR{ErrorToken}(Any[], 0, 1:0, MetaInfo())
 ErrorToken(x) = EXPR{ErrorToken}(Any[x])
 
 Quotenode(x) = EXPR{Quotenode}(Any[x])
@@ -327,4 +342,4 @@ const TRUE = LITERAL(0, 1:0, "", Tokens.TRUE)
 const FALSE = LITERAL(0, 1:0, "", Tokens.FALSE)
 const NOTHING = LITERAL(0, 1:0, "", Tokens.NOTHING)
 
-const GlobalRefDOC = EXPR{GlobalRefDoc}(Any[], 0, 1:0)
+const GlobalRefDOC = EXPR{GlobalRefDoc}(Any[], 0, 1:0, MetaInfo())

@@ -59,7 +59,7 @@ end
 
 function parse_ranges(ps::ParseState)
     startbyte = ps.nt.startbyte
-    arg = parse_iter(ps)
+    arg = @addbinding ps parse_iter(ps)
 
     if (arg isa EXPR{Outer} && !is_range(arg.args[2])) || !is_range(arg)
         push!(ps.errors, Error(ps.nt.startbyte - arg.fullspan:ps.nt.startbyte , "Incorrect iteration specification."))
@@ -68,7 +68,7 @@ function parse_ranges(ps::ParseState)
         arg = EXPR{Block}(Any[arg])
         while ps.nt.kind == Tokens.COMMA
             accept_comma(ps, arg)
-            nextarg = parse_iter(ps)
+            nextarg = @addbinding ps parse_iter(ps)
             if (nextarg isa EXPR{Outer} && !is_range(nextarg.args[2])) || !is_range(nextarg)
                 push!(ps.errors, Error(ps.nt.startbyte - nextarg.fullspan:ps.nt.startbyte , "Incorrect iteration specification."))
                 arg = ErrorToken(arg)

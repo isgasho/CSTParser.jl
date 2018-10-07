@@ -701,3 +701,45 @@ function _unescape_string(io, s::AbstractString)
 end
 
 
+macro addbinding(ps, body)
+    quote
+        out = $(esc(body))
+        if !out.meta.binding
+            out.meta.binding = true
+            push!($(esc(ps)).meta.bindings, Reference(out, $(esc(ps)).nt.startbyte - out.fullspan, $(esc(ps)).meta.s, $(esc(ps)).meta.nb, CSTParser.get_name(out)))
+            $(esc(ps)).meta.nb += 1
+        end
+        out
+    end
+end
+
+@generated function shrink_tuple(t::NTuple{N,Int}) where N
+    out = :()
+    for i = 1:N-1
+        push!(out.args, :(t[$i]))
+    end     
+    return out
+end
+
+@generated function add_to_tuple(t::NTuple{N,Int}, n) where N
+    out = :()
+    for i = 1:N
+        push!(out.args, :(t[$i]))
+    end
+    push!(out.args, :n)
+    return out
+end
+
+macro newscope(ps, body)
+    quote
+        $(esc(ps)).meta.nb += 1
+        local old_pss = $(esc(ps)).meta.s
+        local old_psnb = $(esc(ps)).meta.nb
+        $(esc(ps)).meta.s = add_to_tuple($(esc(ps)).meta.s, $(esc(ps)).meta.nb)
+        $(esc(ps)).meta.nb = 0
+        ret = $(esc(body))
+        $(esc(ps)).meta.s = old_pss
+        $(esc(ps)).meta.nb = old_psnb
+        ret
+    end
+end

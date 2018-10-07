@@ -4,35 +4,35 @@ function parse_kw(ps)
     if k == Tokens.IF
         return @default ps @closer ps block parse_if(ps)
     elseif k == Tokens.LET
-        return @default ps @closer ps block parse_let(ps)
+        return @newscope ps @default ps @closer ps block parse_let(ps)
     elseif k == Tokens.TRY
-        return @default ps @closer ps block parse_try(ps)
+        return @default ps @newscope ps @closer ps block parse_try(ps)
     elseif k == Tokens.FUNCTION
-        return @default ps @closer ps block parse_function(ps)
+        return @addbinding ps @newscope ps @default ps @closer ps block parse_function(ps)
     elseif k == Tokens.MACRO
-        return @default ps @closer ps block parse_macro(ps)
+        return @addbinding ps @newscope ps @default ps @closer ps block parse_macro(ps)
     elseif k == Tokens.BEGIN
         return @default ps @closer ps block parse_begin(ps)
     elseif k == Tokens.QUOTE
         return @default ps @closer ps block parse_quote(ps)
     elseif k == Tokens.FOR
-        return @default ps @closer ps block parse_for(ps)
+        return @newscope ps @default ps @closer ps block parse_for(ps)
     elseif k == Tokens.WHILE
-        return @default ps @closer ps block parse_while(ps)
+        return @newscope ps @default ps @closer ps block parse_while(ps)
     elseif k == Tokens.BREAK
         return INSTANCE(ps)
     elseif k == Tokens.CONTINUE
         return INSTANCE(ps)
-    elseif k == Tokens.IMPORT
-        return parse_imports(ps)
-    elseif k == Tokens.IMPORTALL
-        return parse_imports(ps)
-    elseif k == Tokens.USING
-        return parse_imports(ps)
+    elseif k == Tokens.IMPORT || k == Tokens.IMPORTALL || k == Tokens.USING
+        ret = parse_imports(ps)
+        push!(ps.meta.imports, Reference(ret, ps.nt.startbyte - ret.fullspan, ps.meta.s, ps.meta.nb, nothing))
+        return ret
     elseif k == Tokens.EXPORT
-        return parse_export(ps)
+        ret = parse_export(ps)
+        push!(ps.meta.exports, Reference(ret, ps.nt.startbyte - ret.fullspan, ps.meta.s, ps.meta.nb, nothing))
+        return ret
     elseif k == Tokens.MODULE ||  k == Tokens.BAREMODULE
-        return @default ps @closer ps block parse_module(ps)
+        return @addbinding ps @newscope ps @default ps @closer ps block parse_module(ps)
     elseif k == Tokens.CONST
         return @default ps parse_const(ps)
     elseif k == Tokens.GLOBAL
@@ -47,15 +47,15 @@ function parse_kw(ps)
         push!(ps.errors, Error((ps.t.startbyte:ps.t.endbyte) .+ 1 , "Unexpected end."))
         return ErrorToken(IDENTIFIER(ps))
     elseif k == Tokens.ABSTRACT
-        return @default ps parse_abstract(ps)
+        return @addbinding ps @newscope ps @default ps parse_abstract(ps)
     elseif k == Tokens.PRIMITIVE
-        return @default ps parse_primitive(ps)
+        return @addbinding ps @newscope ps @default ps parse_primitive(ps)
     elseif k == Tokens.TYPE
-        return @default ps @closer ps block parse_struct(ps, true)
+        return @addbinding ps @newscope ps @default ps @closer ps block parse_struct(ps, true)
     elseif k == Tokens.IMMUTABLE || k == Tokens.STRUCT
-        return @default ps @closer ps block parse_struct(ps, false)
+        return @addbinding ps @newscope ps @default ps @closer ps block parse_struct(ps, false)
     elseif k == Tokens.MUTABLE
-        return @default ps @closer ps block parse_mutable(ps)
+        return @addbinding ps @newscope ps @default ps @closer ps block parse_mutable(ps)
     elseif k == Tokens.OUTER
         return IDENTIFIER(ps)
     end
@@ -186,6 +186,7 @@ end
 
 @addctx :function function parse_function(ps::ParseState)
     kw = KEYWORD(ps)
+    offset = ps.nt.startbyte
     sig = @closer ps inwhere @closer ps ws parse_expression(ps)
 
     if sig isa EXPR{InvisBrackets} && !(sig.args[2] isa EXPR{TupleH})
@@ -195,6 +196,15 @@ end
         istuple = true
     else
         istuple = false
+    end
+    if sig isa EXPR
+        offset += sig.args[1].fullspan
+        for i = 2:length(sig.args)
+            if !(sig.args[i] isa PUNCTUATION)
+                @addbinding ps sig.args[i]
+            end
+            offset += sig.args[i].fullspan
+        end
     end
 
     while ps.nt.kind == Tokens.WHERE && ps.ws.kind != Tokens.NEWLINE_WS
@@ -368,7 +378,7 @@ end
 
     args = EXPR{TupleH}(Any[])
     @closer ps comma @closer ps block while !closer(ps)
-        a = parse_expression(ps)
+        a = @addbinding ps parse_expression(ps)
         push!(args, a)
         if ps.nt.kind == Tokens.COMMA
             accept_comma(ps, args)

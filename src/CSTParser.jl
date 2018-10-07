@@ -82,7 +82,7 @@ function parse_compound(ps::ParseState, @nospecialize ret)
     if ps.nt.kind == Tokens.FOR
         ret = parse_generator(ps, ret)
     elseif ps.nt.kind == Tokens.DO
-        ret = @default ps @closer ps block parse_do(ps, ret)
+        ret = @newscope ps @default ps @closer ps block parse_do(ps, ret)
     elseif isajuxtaposition(ps, ret)
         op = OPERATOR(0, 1:0, Tokens.STAR, false)
         ret = parse_operator(ps, ret, op)

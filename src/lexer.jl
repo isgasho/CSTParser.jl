@@ -36,6 +36,24 @@ struct Error
     description::String
 end
 
+struct Reference{T}
+    val::T
+    offset::Int
+    s::Tuple
+    nb::Int
+    name
+end
+
+mutable struct MetaState
+    refs::Vector{Reference}
+    bindings::Vector{Reference}
+    imports::Vector{Reference}
+    exports::Vector{Reference}
+    s::Tuple
+    nb::Int
+end
+MetaState() = MetaState(Reference[], Reference[], Reference[], Reference[], (), 0)
+
 mutable struct ParseState
     l::Lexer{Base.GenericIOBuffer{Array{UInt8, 1}},RawToken}
     done::Bool
@@ -50,9 +68,10 @@ mutable struct ParseState
     closer::Closer
     errored::Bool
     errors::Vector
+    meta::MetaState
 end
 function ParseState(str::Union{IO,String})
-    ps = ParseState(tokenize(str, RawToken), false, RawToken(), RawToken(), RawToken(), RawToken(), RawToken(), RawToken(), RawToken(), RawToken(), Closer(), false, Error[])
+    ps = ParseState(tokenize(str, RawToken), false, RawToken(), RawToken(), RawToken(), RawToken(), RawToken(), RawToken(), RawToken(), RawToken(), Closer(), false, Error[], MetaState())
     return next(next(ps))
 end
 
