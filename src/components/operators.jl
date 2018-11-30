@@ -189,6 +189,10 @@ function parse_unary_colon(ps::ParseState, op::OPERATOR)
 end
 
 function parse_operator_eq(ps::ParseState, @nospecialize(ret), op)
+    if is_func_call(ret)
+        offset = ps.nt.startbyte - op.fullspan - ret.fullspan
+        add_sig_args(ps, offset, ret)
+    end
     nextarg = @precedence ps AssignmentOp - LtoR(AssignmentOp) parse_expression(ps)
 
     if is_func_call(ret) && !(nextarg isa EXPR{Begin} || (nextarg isa EXPR{InvisBrackets} && nextarg.args[2] isa EXPR{Block}))

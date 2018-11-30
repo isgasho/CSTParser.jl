@@ -36,6 +36,48 @@ struct Error
     description::String
 end
 
+# struct Location
+#     file::String
+#     offset::Int
+# end
+
+# struct Binding{T}
+#     name::String
+#     val::T
+#     loc::Location
+# end
+
+# mutable struct SymTable
+#     names::Dict{String,Vector{Binding}}
+# end
+# SymTable() = SymTable(Dict{String,Vector{Binding}}())
+
+# mutable struct Scope
+#     index::Tuple
+#     nb::Int
+#     parent::Union{Nothing,Scope}
+#     table::SymTable
+#     t::Symbol
+# end
+# Scope() = Scope((), 0, nothing, SymTable(), :toplevel)
+
+struct Reference{T,N}
+    val::T
+    offset::Int
+    s::NTuple{N, Int}
+end
+
+mutable struct MetaInfo
+#    current_scope::Scope
+#    nb::Int
+#    bindings
+    ind::NTuple{N, Int} where N
+    refs::Vector{Reference}
+    bindings::Vector{Reference}
+    block_binding::Bool
+end
+MetaInfo() = MetaInfo((1,), Reference[], Reference[], false)
+
 mutable struct ParseState
     l::Lexer{Base.GenericIOBuffer{Array{UInt8, 1}},RawToken}
     done::Bool
@@ -50,9 +92,10 @@ mutable struct ParseState
     closer::Closer
     errored::Bool
     errors::Vector
+    meta::MetaInfo
 end
 function ParseState(str::Union{IO,String})
-    ps = ParseState(tokenize(str, RawToken), false, RawToken(), RawToken(), RawToken(), RawToken(), RawToken(), RawToken(), RawToken(), RawToken(), Closer(), false, Error[])
+    ps = ParseState(tokenize(str, RawToken), false, RawToken(), RawToken(), RawToken(), RawToken(), RawToken(), RawToken(), RawToken(), RawToken(), Closer(), false, Error[], MetaInfo())
     return next(next(ps))
 end
 

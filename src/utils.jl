@@ -704,4 +704,104 @@ function _unescape_string(io, s::AbstractString)
     end
 end
 
+@generated function add_to_tuple(t::NTuple{N,Int}, n) where N
+    out = :()
+    for i = 1:N
+        push!(out.args, :(t[$i]))
+    end
+    push!(out.args, :n)
+    return out
+end
 
+@generated function add_to_endof_tuple(t::NTuple{N,Int}) where N
+    out = :()
+    for i = 1:N-1
+        push!(out.args, :(t[$i]))
+    end
+    push!(out.args, :(t[$N] + 1))
+    return out
+end
+
+@generated function join_tuple(t1::NTuple{N1,Int}, t2::NTuple{N2,Int}) where {N1,N2}
+    out = :()
+    for i = 1:N1
+        push!(out.args, :(t1[$i]))
+    end
+    for i = 1:N2
+        push!(out.args, :(t2[$i]))
+    end
+    
+    return out
+end
+
+function prefix_refs(refs::Vector{Reference}, prefix)
+    out = similar(refs)
+    for i = 1:length(refs)
+        out[i] = Reference(refs[i].val, refs[i].offset, join_tuple(prefix, refs[i].s))
+    end
+    return out
+end
+
+macro newscope(ps, body)
+    quote
+        local old_ind = add_to_endof_tuple($(esc(ps)).meta.ind)
+        $(esc(ps)).meta.ind = add_to_tuple($(esc(ps)).meta.ind, 1)
+        ret = $(esc(body))
+        $(esc(ps)).meta.ind = old_ind
+        ret
+    end
+end
+
+macro newscopewithbinding(ps, body)
+    quote
+        local old_ind = $(esc(ps)).meta.ind
+        local offset = $(esc(ps)).t.startbyte
+        $(esc(ps)).meta.ind = add_to_tuple($(esc(ps)).meta.ind, 1)
+        ret = $(esc(body))
+        push!($(esc(ps)).meta.bindings, Reference(ret, offset, old_ind))
+        $(esc(ps)).meta.ind = add_to_endof_tuple(old_ind)
+        ret
+    end
+end
+
+macro addbinding(ps, body)
+    quote
+        local offset = $(esc(ps)).t.startbyte
+        out = $(esc(body))
+        if !($(esc(ps)).meta.block_binding)
+            push!($(esc(ps)).meta.bindings, Reference(out, offset, $(esc(ps)).meta.ind))
+            $(esc(ps)).meta.ind = add_to_endof_tuple($(esc(ps)).meta.ind)
+        end
+        out
+    end
+end
+
+macro addbinding(ps, body, offset)
+    quote
+        local offset = $(esc(offset))
+        out = $(esc(body))
+        if !($(esc(ps)).meta.block_binding)
+            push!($(esc(ps)).meta.bindings, Reference(out, offset, $(esc(ps)).meta.ind))
+            $(esc(ps)).meta.ind = add_to_endof_tuple($(esc(ps)).meta.ind)
+        end
+        out
+    end
+end
+
+function add_sig_args(ps, offset, sig) end
+
+function add_sig_args(ps, offset, sig::EXPR{Call})
+    for i = 2:length(sig.args)
+        if sig.args[i] isa EXPR{Parameters}
+            for j = 1:length(sig.args[i])
+                if !(sig.args[i].args[j] isa PUNCTUATION)
+                    @addbinding ps sig.args[i].args[j] offset
+                end
+                offset += sig.args[i].args[j].fullspan
+            end
+        elseif !(sig.args[i] isa PUNCTUATION)
+            @addbinding ps sig.args[i] offset
+        end
+        offset += sig.args[i].fullspan
+    end 
+end

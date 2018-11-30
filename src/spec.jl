@@ -45,7 +45,11 @@ struct IDENTIFIER <: LeafNode
     val::String
     IDENTIFIER(fullspan::Int, span::Int, val::String) = new(fullspan, span, val)
 end
-@noinline IDENTIFIER(ps::ParseState) = IDENTIFIER(ps.nt.startbyte - ps.t.startbyte, ps.t.endbyte - ps.t.startbyte + 1, val(ps.t, ps))
+@noinline function IDENTIFIER(ps::ParseState)
+    id = IDENTIFIER(ps.nt.startbyte - ps.t.startbyte, ps.t.endbyte - ps.t.startbyte + 1, val(ps.t, ps))
+    push!(ps.meta.refs, Reference(id, ps.t.startbyte, ps.meta.ind))
+    return id
+end
 
 struct PUNCTUATION <: LeafNode
     kind::Tokenize.Tokens.Kind
