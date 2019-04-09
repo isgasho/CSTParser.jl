@@ -371,6 +371,7 @@ end
 function cst_parsefile(str)
     x, ps = CSTParser.parse(ParseState(str), true)
     sp = check_span(x)
+    cp = check_parent(x)
     # remove leading/trailing nothings
     if length(x.args) > 0 && is_nothing(x.args[1])
         popfirst!(x.args)
@@ -379,12 +380,12 @@ function cst_parsefile(str)
         pop!(x.args)
     end
     x0 = norm_ast(Expr(x))
-    x0, ps.errored, sp
+    x0, ps.errored, sp, cp
 end
 
 function check_file(file, ret, neq)
     str = read(file, String)
-    x0, cstfailed, sp = cst_parsefile(str)
+    x0, cstfailed, sp, cp = cst_parsefile(str)
     x1, flispfailed = flisp_parsefile(str)
     
     print("\r                             ")
@@ -393,6 +394,12 @@ function check_file(file, ret, neq)
         @show sp
         println()
         push!(ret, (file, :span))
+    end
+    if !isempty(cp)
+        printstyled(file, color = :orange)
+        # @show cp
+        println()
+        push!(ret, (file, :parent))
     end
     if cstfailed
         printstyled(file, color = :yellow)
@@ -492,71 +499,25 @@ check_span(x, neq = [])
 Recursively checks whether the span of an expression equals the sum of the span
 of its components. Returns a vector of failing expressions.
 """
-function check_span(x::EXPR{StringH}, neq = []) end
-function check_span(x::T, neq = []) where T <: Union{IDENTIFIER,LITERAL,OPERATOR,KEYWORD,PUNCTUATION} neq end
-
-function check_span(x::UnaryOpCall, neq = []) 
-    check_span(x.op)
-    check_span(x.arg)
-    if x.op.fullspan + x.arg.fullspan != x.fullspan
-        push!(neq, x)
-    end
-    neq
-end
-function check_span(x::UnarySyntaxOpCall, neq = []) 
-    check_span(x.arg1)
-    check_span(x.arg2)
-    if x.arg1.fullspan + x.arg2.fullspan != x.fullspan
-        push!(neq, x)
-    end
-    neq
-end
-
-function check_span(x::T, neq = []) where T <: Union{BinaryOpCall,BinarySyntaxOpCall}
-    check_span(x.arg1)
-    check_span(x.op)
-    check_span(x.arg2)
-    if x.arg1.fullspan + x.op.fullspan + x.arg2.fullspan != x.fullspan
-        push!(neq, x)
-    end
-    neq
-end
-
-function check_span(x::WhereOpCall, neq = [])
-    check_span(x.arg1)
-    check_span(x.op)
-    for a in x.args
-        check_span(a)
-    end
-    if x.arg1.fullspan + x.op.fullspan + sum(a.fullspan for a in x.args) != x.fullspan
-        push!(neq, x)
-    end
-    neq
-end
-
-function check_span(x::ConditionalOpCall, neq = [])
-    check_span(x.cond)
-    check_span(x.op1)
-    check_span(x.arg1)
-    check_span(x.op2)
-    check_span(x.arg2)
-    if x.cond.fullspan + x.op1.fullspan + x.arg1.fullspan + x.op2.fullspan + x.arg2.fullspan != x.fullspan
-        push!(neq, x)
-    end
-    neq
-end
-
-
-function check_span(x::EXPR, neq = [])
+check_span(x::LeafNode, neq = []) = neq
+function check_span(x::AbstractEXPR, neq = [])
     s = 0
-    for a in x.args
+    for a in x 
         check_span(a, neq)
         s += a.fullspan
     end
-    if length(x.args) > 0 && s != x.fullspan
+    if s != x.fullspan
         push!(neq, x)
     end
     neq
+end
+
+function check_parent(x, parent = nothing, errs = [])
+    getparent(x) != parent && push!(errs, (Expr(x),typeof(parent)))
+    for a in x
+        check_parent(a, x, errs)
+    end
+    errs
 end
 
 function speed_test()

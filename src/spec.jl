@@ -20,38 +20,61 @@ const DddotOp       = 7
 const AnonFuncOp    = 14
 
 abstract type AbstractEXPR end
+abstract type LeafNode <: AbstractEXPR end
 
-# Invariants:
-# if !isempty(e.args)
-#   e.fullspan == sum(x->x.fullspan, e.args)
-#   first(e.span) == first(first(e.args).span)
-#   last(e.span) == sum(x->x.fullspan, e.args[1:end-1]) + last(last(e.args).span)
-# end
+mutable struct Binding
+    name::String
+    refs::Vector{Any}
+    val
+end    
+Binding(name) = Binding(name, AbstractEXPR[], nothing)
+
+mutable struct Meta
+    parent#::Union{Nothing,AbstractEXPR}
+    binding#::Union{Nothing,Binding}
+    ref
+    scope::Union{Nothing,Dict}
+    store::Any
+end
+Meta(;parent = nothing, binding = nothing, ref = nothing, scope = nothing) = Meta(parent, binding, ref, scope, nothing)
+
 mutable struct EXPR{T} <: AbstractEXPR
     args::Vector
-    # The full width of this expression including any whitespace
     fullspan::Int
-    # The range of bytes within the fullspan that constitute the actual expression,
-    # excluding any leading/trailing whitespace or other trivia. 1-indexed
     span::Int
+    meta::Meta
 end
-
-
-abstract type LeafNode <: AbstractEXPR end
+function EXPR{T}(args, fullspan, span) where T
+    ret = EXPR{T}(args, fullspan, span, Meta())
+    for i = 1:length(args)
+        setparent!(ret.args[i], ret)
+    end
+    return ret
+end
+function EXPR{T}(args::Vector) where {T}
+    ret = EXPR{T}(args, 0, 0)
+    update_span!(ret)
+    ret
+end
     
 struct IDENTIFIER <: LeafNode
     fullspan::Int
     span::Int
     val::String
-    IDENTIFIER(fullspan::Int, span::Int, val::String) = new(fullspan, span, val)
+    meta::Meta
+    IDENTIFIER(fullspan::Int, span::Int, val::String, meta::Meta) = new(fullspan, span, val, meta)
 end
+IDENTIFIER(fullspan::Int, span::Int, val::String) = IDENTIFIER(fullspan, span, val, Meta())
 @noinline IDENTIFIER(ps::ParseState) = IDENTIFIER(ps.nt.startbyte - ps.t.startbyte, ps.t.endbyte - ps.t.startbyte + 1, val(ps.t, ps))
 
 struct PUNCTUATION <: LeafNode
     kind::Tokenize.Tokens.Kind
     fullspan::Int
     span::Int
+    meta::Meta
+    PUNCTUATION(kind::Tokenize.Tokens.Kind, fullspan::Int, span::Int, meta::Meta) = new(kind, fullspan, span, meta)
 end
+@noinline PUNCTUATION(kind::Tokenize.Tokens.Kind, fullspan::Int, span::Int) = PUNCTUATION(kind, fullspan, span, Meta())
 @noinline PUNCTUATION(ps::ParseState) = PUNCTUATION(ps.t.kind, ps.nt.startbyte - ps.t.startbyte, ps.t.endbyte - ps.t.startbyte + 1)
 
 struct OPERATOR <: LeafNode
@@ -59,14 +82,20 @@ struct OPERATOR <: LeafNode
     span::Int
     kind::Tokenize.Tokens.Kind
     dot::Bool
+    meta::Meta
+    OPERATOR(fullspan::Int, span::Int, kind::Tokenize.Tokens.Kind, dot::Bool, meta::Meta) = new(fullspan, span, kind, dot, meta)
 end
+@noinline OPERATOR(fullspan::Int, span::Int, kind::Tokenize.Tokens.Kind, dot::Bool) = OPERATOR(fullspan, span, kind, dot, Meta())
 @noinline OPERATOR(ps::ParseState) = OPERATOR(ps.nt.startbyte - ps.t.startbyte, ps.t.endbyte - ps.t.startbyte + 1, ps.t.kind, ps.t.dotop)
 
 struct KEYWORD <: LeafNode
     kind::Tokenize.Tokens.Kind
     fullspan::Int
     span::Int
+    meta::Meta
+    KEYWORD(kind::Tokenize.Tokens.Kind, fullspan::Int, span::Int, meta::Meta) = new(kind, fullspan, span, meta)
 end
+@noinline KEYWORD(kind::Tokenize.Tokens.Kind, fullspan::Int, span::Int) = KEYWORD(kind, fullspan, span, Meta())
 @noinline KEYWORD(ps::ParseState) = KEYWORD(ps.t.kind, ps.nt.startbyte - ps.t.startbyte, ps.t.endbyte - ps.t.startbyte + 1)
 
 
@@ -75,7 +104,10 @@ struct LITERAL <: LeafNode
     span::Int
     val::String
     kind::Tokenize.Tokens.Kind
+    meta::Meta
+    LITERAL(fullspan::Int, span::Int, val::String, kind::Tokenize.Tokens.Kind, meta::Meta) = new(fullspan, span, val, kind, meta)
 end
+LITERAL(fullspan::Int, span::Int, val::String, kind::Tokenize.Tokens.Kind) = LITERAL(fullspan, span, val, kind, Meta())
 function LITERAL(ps::ParseState)
     if ps.t.kind == Tokens.STRING || ps.t.kind == Tokens.TRIPLE_STRING ||
        ps.t.kind == Tokens.CMD || ps.t.kind == Tokens.TRIPLE_CMD
@@ -100,20 +132,16 @@ function update_span!(x::EXPR)
     return 
 end
 
-function EXPR{T}(args::Vector) where {T}
-    ret = EXPR{T}(args, 0, 0)
-    update_span!(ret)
-    ret
-end
-
 function Base.push!(e::EXPR, arg)
     e.span = e.fullspan + arg.span
     e.fullspan += arg.fullspan
+    setparent!(arg, e)
     push!(e.args, arg)
 end
 
 function Base.pushfirst!(e::EXPR, arg)
     e.fullspan += arg.fullspan
+    setparent!(arg, e)
     pushfirst!(e.args, arg)
 end
 
@@ -129,12 +157,18 @@ function Base.pop!(e::EXPR)
 end
 
 function Base.append!(e::EXPR, args::Vector)
+    for a in args 
+        setparent!(a, e)
+    end
     append!(e.args, args)
     update_span!(e)
 end
 
 function Base.append!(a::EXPR, b::EXPR)
     append!(a.args, b.args)
+    for arg in b.args 
+        setparent!(arg, a)
+    end
     a.fullspan += b.fullspan
     a.span = a.fullspan + last(b.span)
 end
@@ -184,9 +218,13 @@ mutable struct UnaryOpCall <: AbstractEXPR
     arg
     fullspan::Int
     span::Int
+    meta::Meta
     function UnaryOpCall(op, arg)
         fullspan = op.fullspan + arg.fullspan
-        new(op, arg, fullspan, fullspan - arg.fullspan + arg.span)
+        out = new(op, arg, fullspan, fullspan - arg.fullspan + arg.span, Meta())
+        setparent!(out.op, out)
+        setparent!(out.arg, out)
+        return out
     end
 end
 
@@ -195,9 +233,13 @@ mutable struct UnarySyntaxOpCall <: AbstractEXPR
     arg2
     fullspan::Int
     span::Int
+    meta::Meta
     function UnarySyntaxOpCall(arg1, arg2)
         fullspan = arg1.fullspan + arg2.fullspan
-        new(arg1, arg2, fullspan, fullspan - arg2.fullspan + arg2.span)
+        out = new(arg1, arg2, fullspan, fullspan - arg2.fullspan + arg2.span, Meta())
+        setparent!(out.arg1, out)
+        setparent!(out.arg2, out)
+        return out
     end
 end
 
@@ -207,9 +249,14 @@ mutable struct BinaryOpCall <: AbstractEXPR
     arg2
     fullspan::Int
     span::Int
+    meta::Meta
     function BinaryOpCall(arg1, op, arg2)
         fullspan = arg1.fullspan + op.fullspan + arg2.fullspan
-        new(arg1, op, arg2, fullspan, fullspan - arg2.fullspan + arg2.span)
+        out = new(arg1, op, arg2, fullspan, fullspan - arg2.fullspan + arg2.span, Meta())
+        setparent!(out.arg1, out)
+        setparent!(out.op, out)
+        setparent!(out.arg2, out)
+        return out
     end
 end
 
@@ -219,9 +266,14 @@ mutable struct BinarySyntaxOpCall <: AbstractEXPR
     arg2
     fullspan::Int
     span::Int
+    meta::Meta
     function BinarySyntaxOpCall(arg1, op, arg2)
         fullspan = arg1.fullspan + op.fullspan + arg2.fullspan
-        new(arg1, op, arg2, fullspan, fullspan - arg2.fullspan + arg2.span)
+        out = new(arg1, op, arg2, fullspan, fullspan - arg2.fullspan + arg2.span, Meta())
+        setparent!(out.arg1, out)
+        setparent!(out.op, out)
+        setparent!(out.arg2, out)
+        return out
     end
 end
 
@@ -231,12 +283,17 @@ mutable struct WhereOpCall <: AbstractEXPR
     args::Vector
     fullspan::Int
     span::Int
+    meta::Meta
     function WhereOpCall(arg1, op::OPERATOR, args)
-        fullspan = arg1.fullspan + op.fullspan
+        out = new(arg1, op, args, arg1.fullspan + op.fullspan, - last(args).fullspan + last(args).span, Meta())
+        setparent!(out.arg1, out)
+        setparent!(out.op, out)
         for a in args
-            fullspan += a.fullspan
+            setparent!(a, out)
+            out.fullspan += a.fullspan
         end
-        new(arg1, op, args, fullspan, fullspan - last(args).fullspan + last(args).span)
+        out.span += out.fullspan
+        return out
     end
 end
 
@@ -248,9 +305,16 @@ mutable struct ConditionalOpCall <: AbstractEXPR
     arg2
     fullspan::Int
     span::Int
+    meta::Meta
     function ConditionalOpCall(cond, op1, arg1, op2, arg2)
         fullspan = cond.fullspan + op1.fullspan + arg1.fullspan + op2.fullspan + arg2.fullspan
-        new(cond, op1, arg1, op2, arg2, fullspan, fullspan - arg2.fullspan + arg2.span)
+        out = new(cond, op1, arg1, op2, arg2, fullspan, fullspan - arg2.fullspan + arg2.span, Meta())
+        setparent!(out.cond, out)
+        setparent!(out.op1, out)
+        setparent!(out.arg1, out)
+        setparent!(out.op2, out)
+        setparent!(out.arg2, out)
+        return out
     end
 end
 
@@ -321,8 +385,60 @@ ErrorToken(x) = EXPR{ErrorToken}(Any[x])
 
 Quotenode(x) = EXPR{Quotenode}(Any[x])
 
-const TRUE = LITERAL(0, 0, "", Tokens.TRUE)
-const FALSE = LITERAL(0, 0, "", Tokens.FALSE)
-const NOTHING = LITERAL(0, 0, "", Tokens.NOTHING)
+TRUE() = LITERAL(0, 0, "", Tokens.TRUE)
+FALSE() = LITERAL(0, 0, "", Tokens.FALSE)
+NOTHING() = LITERAL(0, 0, "", Tokens.NOTHING)
+GlobalRefDOC() = EXPR{GlobalRefDoc}(Any[], 0, 0)
 
-const GlobalRefDOC = EXPR{GlobalRefDoc}(Any[], 0, 0)
+
+getparent(c::T) where T <: Union{EXPR,IDENTIFIER,KEYWORD,PUNCTUATION,OPERATOR,LITERAL,UnaryOpCall,UnarySyntaxOpCall,BinaryOpCall,BinarySyntaxOpCall,WhereOpCall,ConditionalOpCall} = c.meta.parent
+
+function setparent!(c::T, p) where T <: Union{EXPR,IDENTIFIER,KEYWORD,PUNCTUATION,OPERATOR,LITERAL,UnaryOpCall,UnarySyntaxOpCall,BinaryOpCall,BinarySyntaxOpCall,WhereOpCall,ConditionalOpCall}
+    c.meta.parent = p
+    return c
+end
+
+function setparent!(c, p) return c end
+
+function finalize_expr!(x)
+    for a in x
+        if a <: Union{EXPR,IDENTIFIER,PUNCTUATION,OPERATOR,KEYWORD}
+            setparent!(a, x)
+        end
+    end
+    return x
+end
+
+
+@generated function make_expr(head, args::NTuple{N,Any}) where N
+    fs = Expr(:call, :+)
+    eargs = :(Any[])
+    for i = 1:N
+        push!(fs.args, :(args[$i].fullspan))
+        push!(eargs.args, :(args[$i]))
+    end
+    ex = quote
+        fullspan = $fs
+        ret = EXPR{head}($eargs, fullspan, fullspan - (args[$N].fullspan - args[$N].span), Meta())
+    end
+    for i = 1:N
+        push!(ex.args, :(setparent!(args[$i], ret)))
+    end
+    push!(ex.args, :(return ret))
+    ex
+end 
+
+@generated function make_expr(head, args::NTuple{N,Any}, fullspan::Int, span::Int) where N
+    eargs = :(Any[])
+    for i = 1:N
+        push!(eargs.args, :(args[$i]))
+    end
+    ex = quote
+        ret = EXPR{head}($eargs, fullspan, span, Meta())
+    end
+    for i = 1:N
+        push!(ex.args, :(setparent!(args[$i], ret)))
+    end
+    push!(ex.args, :(return ret))
+    ex
+end 

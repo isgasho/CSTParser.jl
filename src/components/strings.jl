@@ -101,7 +101,7 @@ function parse_string_or_cmd(ps::ParseState, prefixed = false)
                     str =  str[1:prevind(str, sizeof(str))]
                     ex = LITERAL(lspan + ps.nt.startbyte - ps.t.endbyte - 1 + startbytes, lspan + startbytes, str, Tokens.STRING)
                 end
-                push!(ret.args, ex)
+                push!(ret.args, setparent!(ex, ret))
                 istrip && adjust_lcp(ex, true)
                 break
             end
@@ -113,7 +113,7 @@ function parse_string_or_cmd(ps::ParseState, prefixed = false)
                 lspan = position(b)
                 str = tostr(b)
                 ex = LITERAL(lspan + startbytes, lspan + startbytes, str, Tokens.STRING)
-                push!(ret.args, ex); istrip && adjust_lcp(ex)
+                push!(ret.args, setparent!(ex, ret)); istrip && adjust_lcp(ex)
                 startbytes = 0
                 op = OPERATOR(1, 1, Tokens.EX_OR, false)
                 if peekchar(input) == '('
@@ -124,12 +124,12 @@ function parse_string_or_cmd(ps::ParseState, prefixed = false)
 
                     if ps1.nt.kind == Tokens.RPAREN
                         call = UnarySyntaxOpCall(op, EXPR{InvisBrackets}(Any[lparen, rparen]))
-                        push!(ret.args, call)
+                        push!(ret.args, setparent!(call, ret))
                         skip(input, 1)
                     else
                         interp = @closer ps1 paren parse_expression(ps1)
                         call = UnarySyntaxOpCall(op, EXPR{InvisBrackets}(Any[lparen, interp, rparen]))
-                        push!(ret.args, call)
+                        push!(ret.args, setparent!(call, ret))
                         seek(input, ps1.nt.startbyte + 1)
                     end
                     # Compared to flisp/JuliaParser, we have an extra lookahead token,
@@ -146,7 +146,7 @@ function parse_string_or_cmd(ps::ParseState, prefixed = false)
                     # Attribute trailing whitespace to the string
                     t = adjustspan(t)
                     call = UnarySyntaxOpCall(op, t)
-                    push!(ret.args, call)
+                    push!(ret.args, setparent!(call, ret))
                     seek(input, pos + t.fullspan)
                 end
             else
@@ -161,7 +161,9 @@ function parse_string_or_cmd(ps::ParseState, prefixed = false)
             for expr in exprs_to_adjust
                 for (i, a) in enumerate(ret.args)
                     if expr == a
+                        par = getparent(expr)
                         ret.args[i] = typeof(a)(expr.fullspan, expr.span, replace(expr.val, "\n$lcp" => "\n"), expr.kind)
+                        setparent!(ret.args[i], par)
                     end
                 end
             end
@@ -182,14 +184,14 @@ function parse_string_or_cmd(ps::ParseState, prefixed = false)
 end
 
 
-adjustspan(x::IDENTIFIER) = IDENTIFIER(x.span, x.span, x.val)
-adjustspan(x::KEYWORD)= KEYWORD(x.kind, x.span, x.span)
-adjustspan(x::OPERATOR) = OPERATOR(x.span, x.span, x.kind, x.dot)
-adjustspan(x::LITERAL) = LITERAL(x.span, x.span, x.val, x.kind)
-adjustspan(x::PUNCTUATION) = PUNCTUATION(x.kind, x.span, x.span)
+adjustspan(x::IDENTIFIER) = IDENTIFIER(x.span, x.span, x.val, x.meta)
+adjustspan(x::KEYWORD)= KEYWORD(x.kind, x.span, x.span, x.meta)
+adjustspan(x::OPERATOR) = OPERATOR(x.span, x.span, x.kind, x.dot, x.meta)
+adjustspan(x::LITERAL) = LITERAL(x.span, x.span, x.val, x.kind, x.meta)
+adjustspan(x::PUNCTUATION) = PUNCTUATION(x.kind, x.span, x.span, x.meta)
 function adjustspan(x::EXPR)
     x.fullspan = x.span
     return x
 end
 
-dropleadlingnewline(x::LITERAL) = LITERAL(x.fullspan, x.span, x.val[2:end], x.kind)
+dropleadlingnewline(x::LITERAL) = LITERAL(x.fullspan, x.span, x.val[2:end], x.kind, x.meta)

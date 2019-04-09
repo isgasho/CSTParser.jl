@@ -54,7 +54,13 @@ function accept_end(ps::ParseState)
         return ErrorToken(KEYWORD(Tokens.END, 0, 0))
     end
 end
-accept_end(ps::ParseState, args) = push!(args, accept_end(ps))
+accept_end(ps::ParseState, args::Vector) = push!(args, accept_end(ps))
+function accept_end(ps::ParseState, expr::EXPR)
+    x = accept_end(ps)
+    setparent!(x, expr)
+    push!(expr, x)
+    x
+end
 
 function accept_comma(ps)
     if ps.nt.kind == Tokens.COMMA
@@ -63,7 +69,13 @@ function accept_comma(ps)
         return PUNCTUATION(Tokens.RPAREN, 0, 0)
     end
 end
-accept_comma(ps::ParseState, args) = push!(args, accept_comma(ps))
+accept_comma(ps::ParseState, args::Vector) = push!(args, accept_comma(ps))
+function accept_comma(ps::ParseState, expr::EXPR)
+    x = accept_comma(ps)
+    setparent!(x, expr)
+    push!(expr, x)
+    x
+end
 
 function recover_endmarker(ps)
     if ps.nt.kind == Tokens.ENDMARKER

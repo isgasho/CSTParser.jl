@@ -161,7 +161,7 @@ function parse_array(ps::ParseState)
                     end
                     # if only one entry dont use :row
                     if length(last(ret.args).args) == 1
-                        ret.args[end] = ret.args[end].args[1]
+                        ret.args[end] = setparent!(ret.args[end].args[1], ret)
                     end
                     update_span!(ret)
                 end

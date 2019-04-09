@@ -319,6 +319,13 @@ function get_name(x::BinarySyntaxOpCall)
     sig = rem_invis(sig)
 end
 
+function get_name(sig::UnarySyntaxOpCall)
+    if sig.arg2 isa OPERATOR && sig.arg2.kind == Tokens.DDDOT
+        return sig.arg1
+    end
+    return sig
+end
+
 function get_args(x::IDENTIFIER)
     return []
 end
@@ -570,3 +577,96 @@ contributes_scope(x::EXPR{Local}) = true
 contributes_scope(x::EXPR{If}) = true
 contributes_scope(x::EXPR{MacroCall}) = true
 contributes_scope(x::EXPR{TopLevel}) = true
+
+function add_sig_args(sig::EXPR{Call})
+    for i = 2:length(sig.args)
+        if sig.args[i] isa EXPR{Parameters}
+            for j = 1:length(sig.args[i])
+                if !(sig.args[i].args[j] isa PUNCTUATION)
+                    setbinding!(sig.args[i].args[j])
+                end
+            end
+        elseif !(sig.args[i] isa PUNCTUATION)
+            setbinding!(sig.args[i])
+        end
+    end 
+end
+
+function mark_sig_args!(x)
+    if x isa EXPR{Call}
+        for i = 3:length(x.args)-1
+            a = x.args[i]
+            if a isa EXPR{Parameters}
+                for j = 1:length(a.args)
+                    aa = a.args[j]
+                    if !(aa isa PUNCTUATION)
+                        setbinding!(aa)
+                    end
+                end
+            elseif !(a isa PUNCTUATION)
+                setbinding!(a)
+            end
+        end
+    elseif x isa WhereOpCall
+        for a in x.args
+            if !(a isa PUNCTUATION)
+                setbinding!(a)
+            end
+        end
+        mark_sig_args!(x.arg1)
+    elseif x isa BinarySyntaxOpCall && x.op.kind == Tokens.DECLARATION
+        mark_sig_args!(x.arg1)
+    end
+end
+
+function newscope(x)
+    x isa EXPR{ModuleH} ||
+    x isa EXPR{BareModule} ||
+    x isa EXPR{FunctionDef} ||
+    x isa EXPR{Macro} ||
+    x isa EXPR{Struct} ||
+    x isa EXPR{Mutable} ||
+    x isa EXPR{Abstract} ||
+    x isa EXPR{Primitive} ||
+    x isa EXPR{For} ||
+    x isa EXPR{Let} ||
+    x isa EXPR{Do} ||
+    x isa EXPR{Try} ||
+    x isa EXPR{Generator} ||
+    x isa EXPR{While} ||
+    x isa WhereOpCall ||
+    (x isa BinarySyntaxOpCall && x.op.kind == Tokens.EQ && is_func_call(x.arg1))
+end
+
+function setbinding!(x::AbstractEXPR)
+    x.meta.binding = Binding(str_value(get_name(x)), [], x)
+    return x
+end
+
+function setbinding!(x::AbstractEXPR, binding::AbstractEXPR)
+    if x isa EXPR{TupleH}
+        for arg in x.args
+            arg isa PUNCTUATION && continue    
+            setbinding!(arg, binding)
+        end
+    elseif x isa EXPR{InvisBrackets}
+        setbinding!(rem_invis(x), binding)
+    else
+        x.meta.binding = Binding(str_value(get_name(x)), [], binding)
+    end
+    return x
+end
+
+function setbinding!(x::EXPR{Kw})
+    x.meta.binding = Binding(str_value(get_name(x.args[1])), [], x)
+    return x
+end
+
+function setiterbinding!(iter)
+    if (iter isa BinaryOpCall && (iter.op.kind == Tokens.IN || iter.op.kind == Tokens.ELEMENT_OF)) || iter isa BinarySyntaxOpCall && iter.op.kind == Tokens.EQ
+        # iter.meta.binding = Binding(str_value(iter.arg1), [], iter.arg1)
+        setbinding!(iter.arg1, iter)
+    end
+    return iter
+end
+
