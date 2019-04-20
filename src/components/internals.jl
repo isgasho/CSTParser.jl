@@ -73,7 +73,7 @@ function parse_ranges(ps::ParseState)
         arg = EXPR{Block}(Any[arg])
         while ps.nt.kind == Tokens.COMMA
             accept_comma(ps, arg)
-            nextarg = setbinding!(parse_iter(ps))
+            nextarg = setiterbinding!(parse_iter(ps))
             if (nextarg isa EXPR{Outer} && !is_range(nextarg.args[2])) || !is_range(nextarg)
                 push!(ps.errors, Error(ps.nt.startbyte - nextarg.fullspan:ps.nt.startbyte , "Incorrect iteration specification."))
                 arg = ErrorToken(arg)
@@ -107,6 +107,9 @@ Parses a function call. Expects to start before the opening parentheses and is p
 """
 function parse_call(ps::ParseState, ret, ismacro = false)
     sb = ps.nt.startbyte - ret.fullspan
+    if ret isa IDENTIFIER && ret.val === "new" && :struct in ps.closer.cc
+        ret = KEYWORD(Tokens.NEW, ret.fullspan, ret.span, ret.meta)
+    end
     if is_minus(ret) || is_not(ret)
         arg = @closer ps unary @closer ps inwhere @precedence ps 13 parse_expression(ps)
         if arg isa EXPR{TupleH}
@@ -254,7 +257,6 @@ Comprehensions are parsed as SQUAREs containing a generator.
 """
 function parse_generator(ps::ParseState, @nospecialize ret)
     kw = KEYWORD(next(ps))
-    # ret = EXPR{Generator}(Any[ret, kw])
     ret = make_expr(Generator, (ret, kw))
     ranges = @closesquare ps parse_ranges(ps)
 
@@ -262,7 +264,6 @@ function parse_generator(ps::ParseState, @nospecialize ret)
         if ranges isa EXPR{Block}
             ranges = EXPR{Filter}(ranges.args)
         else
-            # ranges = EXPR{Filter}(Any[ranges])
             ranges = make_expr(Filter, (ranges,))
         end
         pushfirst!(ranges, KEYWORD(next(ps)))
@@ -277,7 +278,6 @@ function parse_generator(ps::ParseState, @nospecialize ret)
     
 
     if ret.args[1] isa EXPR{Generator} || ret.args[1] isa EXPR{Flatten}
-        # ret = EXPR{Flatten}(Any[ret])
         ret = make_expr(Flatten, (ret,))
     end
 

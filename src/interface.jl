@@ -321,7 +321,7 @@ end
 
 function get_name(sig::UnarySyntaxOpCall)
     if sig.arg2 isa OPERATOR && sig.arg2.kind == Tokens.DDDOT
-        return sig.arg1
+        return get_name(sig.arg1)
     end
     return sig
 end
@@ -635,11 +635,20 @@ function newscope(x)
     x isa EXPR{Generator} ||
     x isa EXPR{While} ||
     x isa WhereOpCall ||
-    (x isa BinarySyntaxOpCall && x.op.kind == Tokens.EQ && is_func_call(x.arg1))
+    (x isa BinarySyntaxOpCall && ((x.op.kind == Tokens.EQ && is_func_call(x.arg1)) || (x.op.kind == Tokens.ANON_FUNC))) 
 end
 
 function setbinding!(x::AbstractEXPR)
-    x.meta.binding = Binding(str_value(get_name(x)), [], x)
+    if x isa EXPR{TupleH}
+        for arg in x.args
+            arg isa PUNCTUATION && continue    
+            setbinding!(arg)
+        end
+    elseif x isa EXPR{InvisBrackets}
+        setbinding!(rem_invis(x))
+    else
+        x.meta.binding = Binding(str_value(get_name(x)), [], x)
+    end
     return x
 end
 

@@ -230,6 +230,9 @@ Parses the juxtaposition of `ret` with an opening brace. Parses a comma
 seperated list.
 """
 function parse_curly(ps::ParseState, ret)
+    if ret isa IDENTIFIER && ret.val === "new" && :struct in ps.closer.cc
+        ret = KEYWORD(Tokens.NEW, ret.fullspan, ret.span, ret.meta)
+    end
     args = Any[ret, PUNCTUATION(next(ps))]
     parse_comma_sep(ps, args, true)
     accept_rbrace(ps, args)

@@ -493,9 +493,9 @@ end
     kw = KEYWORD(ps)
     sig = @closer ps ws parse_expression(ps)
     signame = sig
-    if sig isa WhereOpCall
-        signame = rem_where(signame)
-    end
+    signame = rem_subtype(signame)
+    signame = rem_where(signame)
+    
     if signame isa EXPR{Curly}
         for i = 3:length(signame.args)-1
             if !(signame.args[i] isa PUNCTUATION)
@@ -508,7 +508,6 @@ end
     for a in blockargs
         setbinding!(a)
     end
-    # return EXPR{mutable ? Mutable : Struct}(Any[kw, sig, EXPR{Block}(blockargs), accept_end(ps)])
     if isempty(blockargs)
         block = EXPR{Block}(blockargs, 0, 0)
     else
