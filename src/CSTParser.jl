@@ -46,7 +46,7 @@ function parse_expression(ps::ParseState)
         #     # trying to parse an expression but we've hit a token that closes a parent expression
         #     ret = mErrorToken(ps, MissingCloser)
         # else
-            ret = mErrorToken(ps, INSTANCE(next(ps)), UnexpectedToken)
+        ret = mErrorToken(ps, INSTANCE(next(ps)), UnexpectedToken)
         # end
     else
         next(ps)

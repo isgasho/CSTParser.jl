@@ -488,7 +488,7 @@ end
     sb = ps.t.startbyte
     kw = mKEYWORD(ps)
     sig = @closer ps :ws parse_expression(ps)
-    
+
 
     sb1 = ps.nt.startbyte
     blockargs = parse_block(ps)

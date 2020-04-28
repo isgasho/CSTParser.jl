@@ -76,7 +76,7 @@ end
 end
 
 @testset "get_sig_params" begin
-    f = x -> CSTParser.str_value.(CSTParser.get_args(CSTParser.parse(x)))
+    f = x->CSTParser.str_value.(CSTParser.get_args(CSTParser.parse(x)))
     @test f("function f(a) end") == ["a"]
     @test f("function f(a::T) end") == ["a"]
     @test f("function f(a,b) end") == ["a", "b"]
